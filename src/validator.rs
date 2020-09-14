@@ -201,8 +201,9 @@ fn validate_array(
 ) -> (Result<(), String>, usize) {
     enum State {
         Begin,
+        PreValue,
         Value,
-        PendingValue,
+        PostValue,
     }
 
     if depth > MAX_DEPTH {
@@ -227,29 +228,38 @@ fn validate_array(
                 if chr != ST_LSBRACKET {
                     return (Err(String::from("Array should start with \"[\"")), ptr);
                 }
-                state = State::Value;
+                state = State::PreValue;
             }
-            State::Value => {
-                if chr == ST_RSBRACKET {
-                    return (Ok(()), ptr + 1);
-                }
+            State::PreValue => match chr {
+                ST_RSBRACKET => return (Ok(()), ptr + 1),
+                _ if is_insignificant_whitespace(chr) => {}
+                _ => {
+                    let (result, step) = validate_json_value(document, index, depth);
+                    ptr += step;
 
-                if is_insignificant_whitespace(chr) {
-                    ptr += 1;
-                    continue;
+                    if let Ok(_) = result {
+                        state = State::PostValue;
+                        continue;
+                    } else {
+                        return (result, ptr);
+                    }
                 }
+            },
+            State::Value => match chr {
+                _ if is_insignificant_whitespace(chr) => {}
+                _ => {
+                    let (result, step) = validate_json_value(document, index, depth);
+                    ptr += step;
 
-                let (result, step) = validate_json_value(document, start + ptr, depth);
-                ptr += step;
-
-                if let Ok(_) = result {
-                    state = State::PendingValue;
-                    continue;
-                } else {
-                    return (result, ptr);
+                    if let Ok(_) = result {
+                        state = State::PostValue;
+                        continue;
+                    } else {
+                        return (result, ptr);
+                    }
                 }
-            }
-            State::PendingValue => match chr {
+            },
+            State::PostValue => match chr {
                 ST_RSBRACKET => return (Ok(()), ptr + 1),
                 ST_COMMA => state = State::Value,
                 _ if is_insignificant_whitespace(chr) => {}
