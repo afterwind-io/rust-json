@@ -1,5 +1,7 @@
 use super::utils::{UTF8Reader, UTF8ReaderResult};
 
+const MAX_DEPTH: usize = 100;
+
 // Structural Tokens
 const ST_LSBRACKET: &str = "[";
 const ST_RSBRACKET: &str = "]";
@@ -41,7 +43,7 @@ pub fn validate(document: &UTF8Reader) -> Result<(), String> {
 
     let mut i = 0;
     while i < length {
-        let (result, step) = validate_json_value(document, i);
+        let (result, step) = validate_json_value(document, i, 0);
         i += step;
 
         if let Err(reason) = result {
@@ -56,14 +58,18 @@ pub fn validate(document: &UTF8Reader) -> Result<(), String> {
     return Ok(());
 }
 
-fn validate_json_value(document: &UTF8Reader, index: usize) -> (Result<(), String>, usize) {
+fn validate_json_value(
+    document: &UTF8Reader,
+    index: usize,
+    depth: usize,
+) -> (Result<(), String>, usize) {
     return match document.look_ahead(index, 1) {
         UTF8ReaderResult::OutOfBoundError(_) => {
             return (Err(format!("Look ahead out of bound")), 1);
         }
         UTF8ReaderResult::Ok(chr) => match chr {
-            ST_LCBRACKET => validate_object(document, index),
-            ST_LSBRACKET => validate_array(document, index),
+            ST_LCBRACKET => validate_object(document, index, depth + 1),
+            ST_LSBRACKET => validate_array(document, index, depth + 1),
             "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | SP_MINUS => {
                 validate_number(document, index)
             }
@@ -84,13 +90,21 @@ fn validate_json_value(document: &UTF8Reader, index: usize) -> (Result<(), Strin
     };
 }
 
-fn validate_object(document: &UTF8Reader, start: usize) -> (Result<(), String>, usize) {
+fn validate_object(
+    document: &UTF8Reader,
+    start: usize,
+    depth: usize,
+) -> (Result<(), String>, usize) {
     enum State {
         Begin,
         Key,
         PendingValue,
         Value,
         PendingKey,
+    }
+
+    if depth > MAX_DEPTH {
+        return (Err(format!("Nested JSON value is too deep")), 0);
     }
 
     let mut state: State = State::Begin;
@@ -153,7 +167,7 @@ fn validate_object(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
                     continue;
                 }
 
-                let (result, step) = validate_json_value(document, start + ptr);
+                let (result, step) = validate_json_value(document, start + ptr, depth);
                 ptr += step;
 
                 if let Ok(_) = result {
@@ -180,11 +194,19 @@ fn validate_object(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
     }
 }
 
-fn validate_array(document: &UTF8Reader, start: usize) -> (Result<(), String>, usize) {
+fn validate_array(
+    document: &UTF8Reader,
+    start: usize,
+    depth: usize,
+) -> (Result<(), String>, usize) {
     enum State {
         Begin,
         Value,
         PendingValue,
+    }
+
+    if depth > MAX_DEPTH {
+        return (Err(format!("Nested JSON value is too deep")), 0);
     }
 
     let mut state: State = State::Begin;
@@ -217,7 +239,7 @@ fn validate_array(document: &UTF8Reader, start: usize) -> (Result<(), String>, u
                     continue;
                 }
 
-                let (result, step) = validate_json_value(document, start + ptr);
+                let (result, step) = validate_json_value(document, start + ptr, depth);
                 ptr += step;
 
                 if let Ok(_) = result {
