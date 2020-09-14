@@ -299,9 +299,12 @@ fn validate_number(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
 
         let chr = match document.look_ahead(index, 1) {
             UTF8ReaderResult::Ok(s) => s,
-            UTF8ReaderResult::OutOfBoundError(i) => {
-                return (Err(format!("Incomplete number value")), i)
-            }
+            UTF8ReaderResult::OutOfBoundError(tail_offset) => match state {
+                State::LeadingZero | State::Integer | State::Fraction | State::Exponent => {
+                    return (Ok(()), ptr)
+                }
+                _ => return (Err(format!("Incomplete number value")), tail_offset),
+            },
         };
 
         match state {
