@@ -26,22 +26,38 @@ pub fn read_file_as_utf8(entry: &PathBuf) -> Result<String, ()> {
     return Ok(content);
 }
 
+pub enum UTF8ReaderResult<'a> {
+    Ok(&'a str),
+    OutOfBoundError(usize),
+}
+
+impl<'a> UTF8ReaderResult<'a> {
+    pub fn unwrap(self) -> &'a str {
+        match self {
+            UTF8ReaderResult::Ok(s) => s,
+            UTF8ReaderResult::OutOfBoundError(_) => panic!("Index out of bound"),
+        }
+    }
+}
+
 pub struct UTF8Reader<'a> {
     document: &'a str,
     begin_index_map: Vec<usize>,
 }
 
 impl<'a> UTF8Reader<'a> {
-    pub fn get_tail(&self) -> &str {
+    pub fn look_ahead(&self, index: usize, width: usize) -> UTF8ReaderResult {
         let l = self.len();
-        return &self.look_ahead(l - 1, 1);
-    }
 
-    pub fn look_ahead(&self, index: usize, width: usize) -> &str {
+        let end_index = index + width;
+        if end_index > l {
+            return UTF8ReaderResult::OutOfBoundError(l - index);
+        }
+
         let begin = self.begin_index_map[index];
         let end = self.begin_index_map[index + width];
 
-        return &self.document[begin..end];
+        return UTF8ReaderResult::Ok(&self.document[begin..end]);
     }
 
     pub fn len(&self) -> usize {

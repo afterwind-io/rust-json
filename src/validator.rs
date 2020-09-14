@@ -1,4 +1,4 @@
-use super::utils::UTF8Reader;
+use super::utils::{UTF8Reader, UTF8ReaderResult};
 
 // Structural Tokens
 const ST_LSBRACKET: &str = "[";
@@ -36,17 +36,6 @@ const SP_UNICODE: &str = "u";
 const SP_MINUS: &str = "-";
 const SP_DECIMAL_POINT: &str = ".";
 
-enum JSONValue {
-    Object,
-    Array,
-    Number,
-    String,
-    Ture,
-    False,
-    Null,
-    Unknown,
-}
-
 pub fn validate(document: &UTF8Reader) -> Result<(), String> {
     let length = document.len();
 
@@ -68,37 +57,31 @@ pub fn validate(document: &UTF8Reader) -> Result<(), String> {
 }
 
 fn validate_json_value(document: &UTF8Reader, index: usize) -> (Result<(), String>, usize) {
-    return match get_next_json_value_type(document, index) {
-        JSONValue::Object => validate_object(document, index),
-        JSONValue::Array => validate_array(document, index),
-        JSONValue::Number => validate_number(document, index),
-        JSONValue::String => validate_string(document, index),
-        JSONValue::Ture => validate_true(document, index),
-        JSONValue::False => validate_false(document, index),
-        JSONValue::Null => validate_null(document, index),
-        JSONValue::Unknown => {
-            let chr = document.look_ahead(index, 1);
-            match chr {
-                _ if is_insignificant_whitespace(chr) => (Ok(()), 1),
-                _ => {
-                    return (Err(format!("Unknown character: \"{}\"", chr)), 1);
+    return match document.look_ahead(index, 1) {
+        UTF8ReaderResult::OutOfBoundError(_) => {
+            return (Err(format!("Look ahead out of bound")), 1);
+        }
+        UTF8ReaderResult::Ok(chr) => match chr {
+            ST_LCBRACKET => validate_object(document, index),
+            ST_LSBRACKET => validate_array(document, index),
+            "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | SP_MINUS => {
+                validate_number(document, index)
+            }
+            SP_QUOTE => validate_string(document, index),
+            LT_TRUE => validate_true(document, index),
+            LT_FALSE => validate_false(document, index),
+            LT_NULL => validate_null(document, index),
+            _ => {
+                let chr = document.look_ahead(index, 1).unwrap();
+                match chr {
+                    _ if is_insignificant_whitespace(chr) => (Ok(()), 1),
+                    _ => {
+                        return (Err(format!("Unknown character: \"{}\"", chr)), 1);
+                    }
                 }
             }
-        }
+        },
     };
-}
-
-fn get_next_json_value_type(document: &UTF8Reader, index: usize) -> JSONValue {
-    match document.look_ahead(index, 1) {
-        ST_LCBRACKET => JSONValue::Object,
-        ST_LSBRACKET => JSONValue::Array,
-        "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | SP_MINUS => JSONValue::Number,
-        SP_QUOTE => JSONValue::String,
-        LT_TRUE => JSONValue::Ture,
-        LT_FALSE => JSONValue::False,
-        LT_NULL => JSONValue::Null,
-        _ => JSONValue::Unknown,
-    }
 }
 
 fn validate_object(document: &UTF8Reader, start: usize) -> (Result<(), String>, usize) {
@@ -110,18 +93,19 @@ fn validate_object(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
         PendingKey,
     }
 
-    let len = document.len();
-
     let mut state: State = State::Begin;
     let mut ptr = 0;
 
     loop {
         let index = start + ptr;
-        if index >= len {
-            break;
+
+        let chr = match document.look_ahead(index, 1) {
+            UTF8ReaderResult::Ok(s) => s,
+            UTF8ReaderResult::OutOfBoundError(i) => {
+                return (Err(format!("Incomplete number value")), i)
+            }
         };
 
-        let chr = document.look_ahead(index, 1);
         match state {
             State::Begin => {
                 if chr != ST_LCBRACKET {
@@ -194,13 +178,6 @@ fn validate_object(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
 
         ptr += 1;
     }
-
-    let tail = document.get_tail();
-    if tail != ST_RCBRACKET {
-        return (Err(format!("Object is not closed before EOF")), len - 1);
-    }
-
-    return (Ok(()), ptr);
 }
 
 fn validate_array(document: &UTF8Reader, start: usize) -> (Result<(), String>, usize) {
@@ -210,18 +187,19 @@ fn validate_array(document: &UTF8Reader, start: usize) -> (Result<(), String>, u
         PendingValue,
     }
 
-    let len = document.len();
-
     let mut state: State = State::Begin;
     let mut ptr = 0;
 
     loop {
         let index = start + ptr;
-        if index >= len {
-            break;
+
+        let chr = match document.look_ahead(index, 1) {
+            UTF8ReaderResult::Ok(s) => s,
+            UTF8ReaderResult::OutOfBoundError(i) => {
+                return (Err(format!("Incomplete number value")), i)
+            }
         };
 
-        let chr = document.look_ahead(index, 1);
         match state {
             State::Begin => {
                 if chr != ST_LSBRACKET {
@@ -259,13 +237,6 @@ fn validate_array(document: &UTF8Reader, start: usize) -> (Result<(), String>, u
 
         ptr += 1;
     }
-
-    let tail = document.get_tail();
-    if tail != ST_RSBRACKET {
-        return (Err(format!("Array is not closed before EOF")), len - 1);
-    }
-
-    return (Ok(()), ptr);
 }
 
 fn validate_number(document: &UTF8Reader, start: usize) -> (Result<(), String>, usize) {
@@ -297,18 +268,19 @@ fn validate_number(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
         }
     }
 
-    let len = document.len();
-
     let mut state: State = State::Begin;
     let mut ptr = 0;
 
     loop {
         let index = start + ptr;
-        if index >= len {
-            break;
+
+        let chr = match document.look_ahead(index, 1) {
+            UTF8ReaderResult::Ok(s) => s,
+            UTF8ReaderResult::OutOfBoundError(i) => {
+                return (Err(format!("Incomplete number value")), i)
+            }
         };
 
-        let chr = document.look_ahead(index, 1);
         match state {
             State::Begin => match chr {
                 SP_MINUS => state = State::LeadingMinus,
@@ -396,7 +368,6 @@ fn validate_number(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
 
         ptr += 1;
     }
-    return (Ok(()), ptr);
 }
 
 fn validate_string(document: &UTF8Reader, start: usize) -> (Result<(), String>, usize) {
@@ -407,19 +378,20 @@ fn validate_string(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
         Unicode,
     }
 
-    let len = document.len();
-
     let mut state: State = State::Begin;
     let mut ptr = 0;
     let mut unicode_ptr = 0;
 
     loop {
         let index = start + ptr;
-        if index >= len {
-            break;
+
+        let chr = match document.look_ahead(index, 1) {
+            UTF8ReaderResult::Ok(s) => s,
+            UTF8ReaderResult::OutOfBoundError(i) => {
+                return (Err(format!("Incomplete string value")), i)
+            }
         };
 
-        let chr = document.look_ahead(index, 1);
         match state {
             State::Begin => {
                 if chr != SP_QUOTE {
@@ -465,57 +437,71 @@ fn validate_string(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
 
         ptr += 1;
     }
-
-    let tail = document.get_tail();
-    if tail != SP_QUOTE {
-        return (Err(format!("String is not closed before EOF")), len - 1);
-    }
-
-    return (Ok(()), ptr);
 }
 
 fn validate_true(document: &UTF8Reader, start: usize) -> (Result<(), String>, usize) {
     let segment = document.look_ahead(start, 4);
-    if segment == LN_TRUE {
-        return (Ok(()), 4);
-    } else {
-        return (
-            Err(format!(
-                "It seems to be the plain value \"true\", but got \"{}\"",
-                segment
-            )),
-            4,
-        );
+    match segment {
+        UTF8ReaderResult::OutOfBoundError(i) => {
+            return (Err(format!("Incomplete literal name \"true\"",)), i);
+        }
+        UTF8ReaderResult::Ok(name) => {
+            if name == LN_TRUE {
+                return (Ok(()), 4);
+            } else {
+                return (
+                    Err(format!(
+                        "It seems to be the plain value \"true\", but got \"{}\"",
+                        name
+                    )),
+                    4,
+                );
+            }
+        }
     }
 }
 
 fn validate_false(document: &UTF8Reader, start: usize) -> (Result<(), String>, usize) {
     let segment = document.look_ahead(start, 5);
-    if segment == LN_FALSE {
-        return (Ok(()), 5);
-    } else {
-        return (
-            Err(format!(
-                "It seems to be the plain value \"false\", but got \"{}\"",
-                segment
-            )),
-            5,
-        );
+    match segment {
+        UTF8ReaderResult::OutOfBoundError(i) => {
+            return (Err(format!("Incomplete literal name \"false\"",)), i);
+        }
+        UTF8ReaderResult::Ok(name) => {
+            if name == LN_FALSE {
+                return (Ok(()), 5);
+            } else {
+                return (
+                    Err(format!(
+                        "It seems to be the plain value \"false\", but got \"{}\"",
+                        name
+                    )),
+                    5,
+                );
+            }
+        }
     }
 }
 
 fn validate_null(document: &UTF8Reader, start: usize) -> (Result<(), String>, usize) {
     let segment = document.look_ahead(start, 4);
-    if segment == LN_NULL {
-        return (Ok(()), 4);
-    } else {
-        return (
-            Err(format!(
-                "It seems to be the plain value \"null\", but got \"{}\"",
-                segment
-            )),
-            4,
-        );
+    match segment {
+        UTF8ReaderResult::OutOfBoundError(i) => {
+            return (Err(format!("Incomplete literal name \"null\"",)), i);
+        }
+        UTF8ReaderResult::Ok(name) => {
+            if name == LN_NULL {
+                return (Ok(()), 4);
+            } else {
+                return (
+                    Err(format!(
+                        "It seems to be the plain value \"null\", but got \"{}\"",
+                        name
+                    )),
+                    4,
+                );
+            }
+        }
     }
 }
 
