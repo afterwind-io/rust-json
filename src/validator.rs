@@ -413,6 +413,14 @@ fn validate_string(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
         Unicode,
     }
 
+    fn is_control_character(chr: &str) -> bool {
+        let c = chr.chars().nth(0).unwrap();
+        match c {
+            '\u{0000}'..='\u{001F}' => true,
+            _ => false,
+        }
+    }
+
     let mut state: State = State::Begin;
     let mut ptr = 0;
     let mut unicode_ptr = 0;
@@ -435,14 +443,17 @@ fn validate_string(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
 
                 state = State::PlainText;
             }
-            State::PlainText => {
-                match chr {
-                    SP_QUOTE => return (Ok(()), ptr + 1),
-                    SP_REVERSE_SOLIDUS => state = State::Escaping,
-                    // TODO control char
-                    _ => state = State::PlainText,
+            State::PlainText => match chr {
+                SP_QUOTE => return (Ok(()), ptr + 1),
+                SP_REVERSE_SOLIDUS => state = State::Escaping,
+                _ if is_control_character(chr) => {
+                    return (
+                        Err(format!("Control character \"{}\" should be escaped", chr)),
+                        ptr,
+                    )
                 }
-            }
+                _ => state = State::PlainText,
+            },
             State::Escaping => match chr {
                 SP_QUOTE
                 | SP_REVERSE_SOLIDUS
