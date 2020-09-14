@@ -269,7 +269,8 @@ fn validate_number(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
         Integer,
         PendingFraction,
         Fraction,
-        PendingExponent, // + or -
+        ExponentSign, // + or -
+        PendingExponent,
         Exponent,
     }
 
@@ -322,7 +323,7 @@ fn validate_number(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
             },
             State::LeadingZero => match chr {
                 SP_DECIMAL_POINT => state = State::PendingFraction,
-                "e" | "E" => state = State::PendingExponent,
+                "e" | "E" => state = State::ExponentSign,
                 _ if is_valid_demical_number(chr, false) => {
                     return (Err(format!("Leading zeros are not allowed")), ptr)
                 }
@@ -336,7 +337,7 @@ fn validate_number(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
             },
             State::Integer => match chr {
                 SP_DECIMAL_POINT => state = State::PendingFraction,
-                "e" | "E" => state = State::PendingExponent,
+                "e" | "E" => state = State::ExponentSign,
                 _ if is_valid_demical_number(chr, false) => {}
                 _ if is_end_of_number(chr) => return (Ok(()), ptr),
                 _ => {
@@ -356,7 +357,7 @@ fn validate_number(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
                 }
             },
             State::Fraction => match chr {
-                "e" | "E" => state = State::PendingExponent,
+                "e" | "E" => state = State::ExponentSign,
                 _ if is_valid_demical_number(chr, false) => {}
                 _ if is_end_of_number(chr) => return (Ok(()), ptr),
                 _ => {
@@ -366,8 +367,17 @@ fn validate_number(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
                     )
                 }
             },
+            State::ExponentSign => match chr {
+                "+" | "-" => state = State::PendingExponent,
+                _ if is_valid_demical_number(chr, false) => state = State::Exponent,
+                _ => {
+                    return (
+                        Err(format!("Invalid character in exponent part: {:?}", chr)),
+                        ptr,
+                    )
+                }
+            },
             State::PendingExponent => match chr {
-                "+" | "-" => state = State::Exponent,
                 _ if is_valid_demical_number(chr, false) => state = State::Exponent,
                 _ => {
                     return (
