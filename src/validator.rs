@@ -97,10 +97,11 @@ fn validate_object(
 ) -> (Result<(), String>, usize) {
     enum State {
         Begin,
+        PreKey,
         Key,
-        PendingValue,
+        PreValue,
         Value,
-        PendingKey,
+        PostValue,
     }
 
     if depth > MAX_DEPTH {
@@ -125,33 +126,44 @@ fn validate_object(
                 if chr != ST_LCBRACKET {
                     return (Err(String::from("Object should start with \"{\"")), ptr);
                 }
-                state = State::Key;
+                state = State::PreKey;
             }
-            State::Key => {
-                if chr == ST_RCBRACKET {
-                    return (Ok(()), ptr + 1);
-                }
+            State::PreKey => match chr {
+                ST_RCBRACKET => return (Ok(()), ptr + 1),
+                _ if is_insignificant_whitespace(chr) => {}
+                _ => {
+                    let (result, step) = validate_string(document, index);
+                    ptr += step;
 
-                if is_insignificant_whitespace(chr) {
-                    ptr += 1;
-                    continue;
+                    if let Ok(_) = result {
+                        state = State::PreValue;
+                        continue;
+                    } else {
+                        return (
+                            Err(String::from("Object key should be a valid string")),
+                            ptr,
+                        );
+                    }
                 }
+            },
+            State::Key => match chr {
+                _ if is_insignificant_whitespace(chr) => {}
+                _ => {
+                    let (result, step) = validate_string(document, index);
+                    ptr += step;
 
-                if chr != SP_QUOTE {
-                    return (Err(String::from("Object key should start with \"")), ptr);
+                    if let Ok(_) = result {
+                        state = State::PreValue;
+                        continue;
+                    } else {
+                        return (
+                            Err(String::from("Object key should be a valid string")),
+                            ptr,
+                        );
+                    }
                 }
-
-                let (result, step) = validate_string(document, start + ptr);
-                ptr += step;
-
-                if let Ok(_) = result {
-                    state = State::PendingValue;
-                    continue;
-                } else {
-                    return (result, ptr);
-                }
-            }
-            State::PendingValue => match chr {
+            },
+            State::PreValue => match chr {
                 ST_COLON => state = State::Value,
                 _ if is_insignificant_whitespace(chr) => {}
                 _ => {
@@ -161,23 +173,21 @@ fn validate_object(
                     )
                 }
             },
-            State::Value => {
-                if is_insignificant_whitespace(chr) {
-                    ptr += 1;
-                    continue;
-                }
+            State::Value => match chr {
+                _ if is_insignificant_whitespace(chr) => {}
+                _ => {
+                    let (result, step) = validate_json_value(document, index, depth);
+                    ptr += step;
 
-                let (result, step) = validate_json_value(document, start + ptr, depth);
-                ptr += step;
-
-                if let Ok(_) = result {
-                    state = State::PendingKey;
-                    continue;
-                } else {
-                    return (result, ptr);
+                    if let Ok(_) = result {
+                        state = State::PostValue;
+                        continue;
+                    } else {
+                        return (result, ptr);
+                    }
                 }
-            }
-            State::PendingKey => match chr {
+            },
+            State::PostValue => match chr {
                 ST_RCBRACKET => return (Ok(()), ptr + 1),
                 ST_COMMA => state = State::Key,
                 _ if is_insignificant_whitespace(chr) => {}
