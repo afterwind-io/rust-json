@@ -39,19 +39,55 @@ const SP_MINUS: &str = "-";
 const SP_DECIMAL_POINT: &str = ".";
 
 pub fn validate(document: &UTF8Reader) -> Result<(), String> {
+    enum State {
+        PreDocument,
+        PostDocument,
+    }
+
+    fn error(index: usize, reason: &str) -> Result<(), String> {
+        return Err(format!(
+            "Validation Error @ 1:{}\nReason: {}",
+            index + 1,
+            reason
+        ));
+    }
+
     let length = document.len();
+    if length == 0 {
+        return error(0, "JSON document can not be empty");
+    }
 
-    let mut i = 0;
-    while i < length {
-        let (result, step) = validate_json_value(document, i, 0);
-        i += step;
+    let mut state = State::PreDocument;
+    let mut ptr = 0;
 
-        if let Err(reason) = result {
-            return Err(format!(
-                "Validation Error @ 1:{}\nReason: {}",
-                i + 1,
-                reason
-            ));
+    loop {
+        let chr = match document.look_ahead(ptr, 1) {
+            UTF8ReaderResult::Ok(s) => s,
+            UTF8ReaderResult::OutOfBoundError(_) => {
+                if let State::PreDocument = state {
+                    return error(ptr, "No valid JSON value found");
+                }
+                break;
+            }
+        };
+
+        match state {
+            State::PreDocument => match chr {
+                _ if is_insignificant_whitespace(chr) => ptr += 1,
+                _ => {
+                    let (result, step) = validate_json_value(document, ptr, 0);
+                    ptr += step;
+
+                    match result {
+                        Ok(_) => state = State::PostDocument,
+                        Err(reason) => return error(ptr, &reason),
+                    }
+                }
+            },
+            State::PostDocument => match chr {
+                _ if is_insignificant_whitespace(chr) => ptr += 1,
+                _ => return error(ptr, &format!("Expect EOF, but found \"{}\"", chr)),
+            },
         }
     }
 
@@ -78,13 +114,7 @@ fn validate_json_value(
             LT_FALSE => validate_false(document, index),
             LT_NULL => validate_null(document, index),
             _ => {
-                let chr = document.look_ahead(index, 1).unwrap();
-                match chr {
-                    _ if is_insignificant_whitespace(chr) => (Ok(()), 1),
-                    _ => {
-                        return (Err(format!("Unknown character: \"{}\"", chr)), 1);
-                    }
-                }
+                return (Err(format!("Unknown character: \"{}\"", chr)), 1);
             }
         },
     };
