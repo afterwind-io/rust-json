@@ -471,9 +471,17 @@ fn validate_string(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
         }
     }
 
+    fn is_hex_digit(chr: &str) -> bool {
+        let c = chr.chars().nth(0).unwrap();
+        match c {
+            '0'..='9' | 'A'..='F' | 'a'..='f' => true,
+            _ => false,
+        }
+    }
+
     let mut state: State = State::Begin;
     let mut ptr = 0;
-    let mut unicode_ptr = 0;
+    let mut unicode_len = 0;
 
     loop {
         let index = start + ptr;
@@ -519,13 +527,13 @@ fn validate_string(document: &UTF8Reader, start: usize) -> (Result<(), String>, 
                 _ => return (Err(format!("Invalid escaping character: {:?}", chr)), ptr),
             },
             State::Unicode => {
-                if !is_valid_hex_digits(chr) {
+                if !is_hex_digit(chr) {
                     return (Err(format!("Invalid unicode sequence: {:?}", chr)), ptr);
                 }
 
-                unicode_ptr += 1;
-                if unicode_ptr == 4 {
-                    unicode_ptr = 0;
+                unicode_len += 1;
+                if unicode_len == 4 {
+                    unicode_len = 0;
                     state = State::PlainText;
                 }
             }
@@ -598,14 +606,6 @@ fn validate_null(document: &UTF8Reader, start: usize) -> (Result<(), String>, us
                 );
             }
         }
-    }
-}
-
-fn is_valid_hex_digits(chr: &str) -> bool {
-    let c = chr.chars().nth(0).unwrap();
-    match c {
-        '0'..='9' | 'A'..='F' | 'a'..='f' => true,
-        _ => false,
     }
 }
 

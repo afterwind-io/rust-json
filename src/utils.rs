@@ -31,31 +31,22 @@ pub enum UTF8ReaderResult<'a> {
     OutOfBoundError(usize),
 }
 
-impl<'a> UTF8ReaderResult<'a> {
-    pub fn unwrap(self) -> &'a str {
-        match self {
-            UTF8ReaderResult::Ok(s) => s,
-            UTF8ReaderResult::OutOfBoundError(_) => panic!("Index out of bound"),
-        }
-    }
-}
-
 pub struct UTF8Reader<'a> {
     document: &'a str,
     begin_index_map: Vec<usize>,
 }
 
 impl<'a> UTF8Reader<'a> {
-    pub fn look_ahead(&self, index: usize, width: usize) -> UTF8ReaderResult {
+    pub fn look_ahead(&self, begin_index: usize, width: usize) -> UTF8ReaderResult {
         let l = self.len();
 
-        let end_index = index + width;
+        let end_index = begin_index + width;
         if end_index > l {
-            return UTF8ReaderResult::OutOfBoundError(l - index);
+            return UTF8ReaderResult::OutOfBoundError(l - begin_index);
         }
 
-        let begin = self.begin_index_map[index];
-        let end = self.begin_index_map[index + width];
+        let begin = self.begin_index_map[begin_index];
+        let end = self.begin_index_map[end_index];
 
         return UTF8ReaderResult::Ok(&self.document[begin..end]);
     }
